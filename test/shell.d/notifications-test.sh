@@ -547,6 +547,10 @@ assertDeepEqual(
 assert(!notifications.popupExpired({ timestamp: 0 }, 0, 999999), 'critical popups never expire on restore')
 assert(!notifications.popupExpired({ timestamp: 1000 }, 8000, 5000), 'popups within their lifetime are restored')
 assert(notifications.popupExpired({ timestamp: 1000 }, 8000, 9000), 'popups past their lifetime are not restored')
+assert(notifications.summaryMatchesAny({ summary: 'Time to recharge!' }, ['recharge']), 'a dismissal matches a summary substring')
+assert(!notifications.summaryMatchesAny({ summary: 'Time to recharge!' }, ['Update']), 'a dismissal leaves other summaries alone')
+assert(!notifications.summaryMatchesAny({ summary: 'Time to recharge!' }, ['']), 'an empty dismissal matches nothing')
+assert(!notifications.summaryMatchesAny({ summary: 'Time to recharge!' }, []), 'no dismissal matches nothing')
 assert(
   !notifications.popupExpired({ timestamp: 1000, deadline: 20000 }, 8000, 15000),
   'a restore-reset deadline outranks the original popup timestamp'
@@ -767,6 +771,18 @@ assert(
 assert(
   /function clear\(\): string \{\s*service\.clearHistory\(\)/.test(serviceQml),
   'notifications clear IPC forgets the recorded history'
+)
+assert(
+  /if \(!service\.popupsRestored\)\s*service\.dismissedBeforeRestore = /.test(serviceQml),
+  'notifications dismiss IPC remembers a dismissal that arrives before the restore'
+)
+assert(
+  /summaryMatchesAny\(restored, service\.dismissedBeforeRestore\)\) \{\s*archivePopupFileFor\(restored\)/.test(serviceQml),
+  'notifications restore archives popups dismissed before it ran instead of showing them'
+)
+assert(
+  (serviceQml.match(/finishRestore\(\)/g) || []).length === 3,
+  'notifications restore finishes whether or not it put popups back'
 )
 assert(
   !/pendingModel|pastModel/.test(serviceQml),

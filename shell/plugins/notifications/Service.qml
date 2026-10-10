@@ -467,6 +467,11 @@ Item {
   // generations. The replaces_id handling and liveRefs lookups must not
   // match these rows against fresh notifications.
   property var restoredPopups: ({})
+  // Until the restore has put the previous shell's popups back, a dismissal
+  // by summary is remembered and applied to them as they are restored: a
+  // caller dismissing at shell start must not race the restore.
+  property bool popupsRestored: false
+  property var dismissedBeforeRestore: []
 
   // Entries are either { command, done } for a file job or { read: true } for
   // a replay's directory read. Queueing the read rather than running it beside
@@ -784,11 +789,18 @@ Item {
       }
       live.push(entry)
     }
-    if (live.length === 0) return
+    if (live.length === 0) {
+      finishRestore()
+      return
+    }
 
     Qt.callLater(function() {
       for (var j = 0; j < live.length; j++) {
         var restored = live[j]
+        if (NotificationLogic.summaryMatchesAny(restored, service.dismissedBeforeRestore)) {
+          archivePopupFileFor(restored)
+          continue
+        }
         // A notification received while the restore was reading the dir can
         // already occupy this originalId with the same timestamp — then it
         // IS this entry, live with its own file, and must be left alone. A
@@ -812,7 +824,13 @@ Item {
         service.restoredPopups[NotificationLogic.popupFileName(restored)] = true
         popupModel.append(restored)
       }
+      service.finishRestore()
     })
+  }
+
+  function finishRestore() {
+    popupsRestored = true
+    dismissedBeforeRestore = []
   }
 
   // ---------------------------------------------------- settings persistence
@@ -968,6 +986,8 @@ Item {
           hit = true
         }
       }
+      if (!service.popupsRestored)
+        service.dismissedBeforeRestore = service.dismissedBeforeRestore.concat([needle])
       return hit ? "ok" : "none"
     }
 

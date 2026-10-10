@@ -11,14 +11,21 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
   readonly property int batteryThreshold: 10
+  // The summary omarchy-battery-low sends.
+  readonly property string warningSummary: "Time to recharge!"
   property string pendingPowerSource: ""
   property string activePowerProfile: ""
   readonly property bool powerSaverOnBattery: UPower.onBattery && activePowerProfile === "power-saver"
+  property var pendingWarningCommand: null
 
   PersistentProperties {
     id: persisted
     reloadableId: "omarchy-battery"
     property bool notifiedLowBattery: false
+    // True from the start: the notification service restores a warning left
+    // on screen by the previous shell. Cleared only once the shell
+    // acknowledges a dismissal; a lost one is sent again on the next check.
+    property bool warningMayShow: true
   }
 
   function batteryPercentage() {
@@ -30,17 +37,24 @@ Item {
   }
 
   function checkBattery() {
-    var state = BatteryModel.shouldWarnLowBattery(UPower.displayDevice, UPower.onBattery, UPowerDeviceState.Discharging, batteryThreshold, persisted.notifiedLowBattery)
+    var state = BatteryModel.shouldWarnLowBattery(UPower.displayDevice, UPower.onBattery, UPowerDeviceState.Discharging, batteryThreshold, persisted.notifiedLowBattery, persisted.warningMayShow)
     persisted.notifiedLowBattery = state.notifiedLowBattery
-    if (state.notify) sendLowBatteryWarning(state.level)
+    if (state.notify) runWarningCommand(["omarchy-battery-low", String(state.level)])
+    else if (state.dismiss) runWarningCommand(["omarchy-shell", "notifications", "dismiss", warningSummary])
   }
 
-  function sendLowBatteryWarning(level) {
-    if (warningProcess.running) return
-    warningProcess.command = [
-      "omarchy-battery-low",
-      String(level)
-    ]
+  // One command at a time, the latest last, so a dismissal never overtakes
+  // the warning it closes. omarchy-shell without -q fails when the shell did
+  // not take the dismissal (not ready yet, or not responding).
+  function runWarningCommand(command) {
+    pendingWarningCommand = command
+    if (!warningProcess.running) runPendingWarningCommand()
+  }
+
+  function runPendingWarningCommand() {
+    if (pendingWarningCommand[0] === "omarchy-battery-low") persisted.warningMayShow = true
+    warningProcess.command = pendingWarningCommand
+    pendingWarningCommand = null
     warningProcess.running = true
   }
 
@@ -69,7 +83,13 @@ Item {
     }
   }
 
-  Process { id: warningProcess }
+  Process {
+    id: warningProcess
+    onExited: function(exitCode) {
+      if (exitCode === 0 && warningProcess.command[0] === "omarchy-shell") persisted.warningMayShow = false
+      if (root.pendingWarningCommand) root.runPendingWarningCommand()
+    }
+  }
 
   Process {
     id: powerProfileProcess
@@ -120,6 +140,14 @@ Item {
       root.applyPowerProfile()
       root.refreshPowerProfile()
     }
+  }
+
+  // The first check after a start may come before UPower has read the device;
+  // the dismissal waits for these, and charging shows in the device's state.
+  Connections {
+    target: UPower.displayDevice
+    function onReadyChanged() { root.checkBattery() }
+    function onStateChanged() { root.checkBattery() }
   }
 
   Component.onCompleted: root.refreshPowerProfile()

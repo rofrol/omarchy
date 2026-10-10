@@ -476,6 +476,17 @@ function historyRows(raw, liveRows, normalUrgency, limit) {
   return out.slice(0, max)
 }
 
+// Whether a dismissal by summary substring (the dismiss IPC) covers entry.
+function summaryMatchesAny(entry, needles) {
+  var summary = String((entry || {}).summary || "")
+  var list = Array.isArray(needles) ? needles : []
+  for (var i = 0; i < list.length; i++) {
+    var needle = String(list[i] || "")
+    if (needle && summary.indexOf(needle) !== -1) return true
+  }
+  return false
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     isChromiumDerived: isChromiumDerived,
@@ -506,6 +517,7 @@ if (typeof module !== "undefined") {
     parsePopupFiles: parsePopupFiles,
     popupExpired: popupExpired,
     barClearance: barClearance,
+    summaryMatchesAny: summaryMatchesAny,
     popupPlacement: popupPlacement
   }
 }
